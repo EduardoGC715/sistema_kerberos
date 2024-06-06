@@ -1,14 +1,23 @@
 from flask import Flask, request, jsonify
+from Crypto.Cipher import AES
 
 app = Flask(__name__)
 
-@app.route('/request', methods=['POST'])
-def request():
+def encrypt(msg, key):
+    # Create an AES cipher object with the key using the mode EAX
+    cipher = AES.new(key, AES.MODE_EAX)
+    nonce = cipher.nonce
+
+    # Encrypt the message
+    ciphertext, tag = cipher.encrypt_and_digest(msg.encode('utf-8'))
+
+    return nonce, ciphertext, tag
+
+@app.route('/as_request', methods=['POST'])
+def as_request():
     # Get the request data
     data = request.get_json()
-
-    # Process the request data
-    # ...
+    print(data)
 
     # Prepare the response
     response = {
@@ -19,15 +28,5 @@ def request():
     # Return the response as JSON
     return jsonify(response), 200
 
-@app.route('/response', methods=['GET'])
-def response():
-    # Prepare the response
-    response = {
-        'message': 'This is a sample response'
-    }
-
-    # Return the response as JSON
-    return jsonify(response), 200
-
 if __name__ == '__main__':
-    app.run()
+    app.run(port=5001)
