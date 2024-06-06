@@ -10,13 +10,13 @@ app.secret_key = '1234'
 def index():
     return 'Aplicación simulación de Kerberos'
 
-@app.route('/service', methods=['GET','POST'])
+@app.route('/services', methods=['GET','POST'])
 def service():
     if request.method == 'POST':
         service = request.form['service']
         session["service"] = service
         return redirect("/login")
-    return render_template('service.html')
+    return render_template('services.html')
 
 
 @app.route("/login", methods=["GET", "POST"])
