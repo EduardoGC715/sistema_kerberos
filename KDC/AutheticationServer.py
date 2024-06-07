@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 import json
 from datetime import datetime
 import database.Database as Database
-from Secrets import Secrets
+from utils.Secrets import Secrets
 import base64
 from utils import AES
 

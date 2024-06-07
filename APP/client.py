@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, session
 import requests
-from Crypto.Cipher import AES
+from utils import AES
 import json
 
 app = Flask(__name__)
@@ -35,14 +35,15 @@ def login():
             "lifetime": lifetime
         }
 
-        # Send the JSON data to port 5001 and endpoint /request
+        # Send the JSON data to port 5001 and endpoint /as_request
         url = "http://localhost:5001/as_request"
         headers = {"Content-Type": "application/json"}
         response = requests.post(url, json=data, headers=headers)
         # Check the response status code
         if response.status_code == 200:
             response_data = response.json()
-            print(response_data)
+            print(response_data["message"][0])
+            print(response_data["message"][1])
 
             return "Authentication successful"
         if response.status_code == 404:
