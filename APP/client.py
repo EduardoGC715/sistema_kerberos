@@ -65,22 +65,23 @@ def loginPassword():
 
         message = as_rep["message"][0]
         tgt = as_rep["message"][1]
-        key = password + principal
-        hashed_key = hashlib.sha256(key.encode("utf-8")).digest()
+        user_key = password + principal
+        user_hashed_key = hashlib.sha256(user_key.encode("utf-8")).digest()
 
-        cipher_text = message[0].encode("utf-8")
-        nonce = message[1].encode("utf-8")
-        tag = message[2].encode("utf-8")
+        message_cipher_text = message[0].encode("utf-8")
+        message_nonce = message[1].encode("utf-8")
+        message_tag = message[2].encode("utf-8")
 
-        cipher_text = base64.b64decode(cipher_text)
-        nonce = base64.b64decode(nonce)
-        tag = base64.b64decode(tag)
+        message_cipher_text = base64.b64decode(message_cipher_text)
+        message_nonce = base64.b64decode(message_nonce)
+        message_tag = base64.b64decode(message_tag)
 
-        plain_text = AES.decrypt(cipher_text, hashed_key, nonce, tag)
+        message_plain_text = AES.decrypt(message_cipher_text, user_hashed_key, message_nonce, message_tag)
 
-        if plain_text:
-            plain_text.decode("utf-8")
-            plain_text = json.loads(plain_text)
+        if message_plain_text:
+            message_plain_text.decode("utf-8")
+            message_plain_text = json.loads(message_plain_text)
+
             new_message = json.dumps({
                 "service_principal": service + current_realm,
                 "lifetime": 600
@@ -90,7 +91,7 @@ def loginPassword():
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             })
 
-            tgs_session_key = plain_text["tgs_session_key"]
+            tgs_session_key = message_plain_text["tgs_session_key"]
             tgs_session_key.encode("utf-8")
             tgs_session_key = base64.b64decode(tgs_session_key)
 

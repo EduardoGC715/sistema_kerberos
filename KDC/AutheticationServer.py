@@ -3,6 +3,7 @@ import json
 from datetime import datetime
 import database.Database as Database
 from utils.Secrets import Secrets
+from secrets import token_bytes
 import base64
 from utils import AES
 
@@ -16,15 +17,14 @@ def as_request():
     data = request.get_json()
     user = database.user_exists_by_principal(data['user_principal'])
     user_data = user[0].to_dict()
-    print(user_data["key"])
     lifetime = min(data["lifetime"], user_data["ticket_validity_duration"])
-
+    session_key = token_bytes(32)
     if user:
         message = json.dumps({
             "tgs_id": Secrets.TGS_ID.value,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "lifetime": lifetime,
-            "tgs_session_key": base64.b64encode(Secrets.TGS_SESSION_KEY.value).decode('utf-8')
+            "tgs_session_key": base64.b64encode(session_key).decode('utf-8')
             })
         tgt = json.dumps({
             "user_principal": data["user_principal"],
@@ -32,7 +32,7 @@ def as_request():
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "userIP": data["userIP"],
             "tgt_lifetime": 5,
-            "tgs_session_key": base64.b64encode(Secrets.TGS_SESSION_KEY.value).decode('utf-8')
+            "tgs_session_key": base64.b64encode(session_key).decode('utf-8')
             })
         encrypted_message = AES.encrypt(message.encode("utf-8"), user_data["key"])
         encrypted_tgt = AES.encrypt(tgt.encode("utf-8"), Secrets.TGS_KEY.value)
