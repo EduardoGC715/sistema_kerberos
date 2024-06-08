@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import database.Database as Database
 from utils.Secrets import Secrets
 from secrets import token_bytes
@@ -19,37 +19,46 @@ def as_request():
     user_data = user[0].to_dict()
     lifetime = min(data["lifetime"], user_data["ticket_validity_duration"])
     session_key = token_bytes(32)
+    
+    # Check if the user exists
     if user:
+        #create the message reponse
         message = json.dumps({
             "tgs_id": Secrets.TGS_ID.value,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "lifetime": lifetime,
             "tgs_session_key": base64.b64encode(session_key).decode('utf-8')
             })
+        
+        # create the ticket granting ticket
         tgt = json.dumps({
             "user_principal": data["user_principal"],
             "tgs_id": Secrets.TGS_ID.value,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "userIP": data["userIP"],
-            "tgt_lifetime": 5,
+            "tgt_lifetime": (datetime.now() + timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S"),
             "tgs_session_key": base64.b64encode(session_key).decode('utf-8')
             })
+        
+        # encrypt the message and the tgt
         encrypted_message = AES.encrypt(message.encode("utf-8"), user_data["key"])
         encrypted_tgt = AES.encrypt(tgt.encode("utf-8"), Secrets.TGS_KEY.value)
-        values_message = [
-                        base64.b64encode(encrypted_message[0]).decode('utf-8'),
-                        base64.b64encode(encrypted_message[1]).decode('utf-8'),
-                        base64.b64encode(encrypted_message[2]).decode('utf-8')
-                    ]
-        values_tgt = [
-                        base64.b64encode(encrypted_tgt[0]).decode('utf-8'),
-                        base64.b64encode(encrypted_tgt[1]).decode('utf-8'),
-                        base64.b64encode(encrypted_tgt[2]).decode('utf-8')
-                    ]
+
+        # encode the encrypted message and tgt for json response
+        values_message = encode_ciphertext_nonce_tag(encrypted_message)
+        values_tgt = encode_ciphertext_nonce_tag(encrypted_tgt)
         
         return jsonify({'message': [values_message, values_tgt ]}), 200
     
     return jsonify({'message': 'User does not exist'}), 404
+
+def encode_ciphertext_nonce_tag(message):
+    # encode the message for json response
+    return [
+        base64.b64encode(message[0]).decode('utf-8'),
+        base64.b64encode(message[1]).decode('utf-8'),
+        base64.b64encode(message[2]).decode('utf-8')
+    ]
 
 if __name__ == '__main__':
     app.run(port=5001)

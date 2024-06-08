@@ -7,6 +7,7 @@ import json
 from datetime import datetime, timedelta
 
 database = Database.Database()
+cache = {}
 
 app = Flask(__name__)
 
@@ -15,52 +16,57 @@ def tgs_request():
     # Get the request data
     data = request.get_json()
 
+    # extract the data from the request
     message  = data["message"]
     json_message = json.loads(message[0])
     service_principal = json_message["service_principal"]
     authenticator = message[1]
     tgt = message[2]
 
+    # check if the service exists in the database
     service = database.service_exists_by_principal(service_principal)
-
     if service:
+        # get the service key
         service_data = service[0].to_dict()
         service_key = service_data["key"]
 
-        tgt_cipher_text = tgt[0].encode('utf-8')
-        tgt_nonce = tgt[1].encode('utf-8')
-        tgt_tag = tgt[2].encode('utf-8')
+        # decrypt the tgt
+        decoded_tgt = decode_ciphertext_nonce_tag(tgt)
+        tgt_plain_text = AES.decrypt(decoded_tgt[0], Secrets.TGS_KEY.value, decoded_tgt[1], decoded_tgt[2])
 
-        tgt_cipher_text = base64.b64decode(tgt_cipher_text)
-        tgt_nonce = base64.b64decode(tgt_nonce)
-        tgt_tag = base64.b64decode(tgt_tag)
-
-        tgt_plain_text = AES.decrypt(tgt_cipher_text, Secrets.TGS_KEY.value, tgt_nonce, tgt_tag)
-        #could be a new function here (extractMessage or somehting) TODO
+        # check if decryption was successful
         if tgt_plain_text:
+            # extract the information from the tgt
             tgt_plain_text.decode("utf-8")
             tgt_plain_text = json.loads(tgt_plain_text)
-
+            
+            # extract the tgt session key
             tgs_session_key = tgt_plain_text["tgs_session_key"]
             tgs_session_key.encode("utf-8")
             tgs_session_key = base64.b64decode(tgs_session_key)
+            
+            # decrypt the authenticator
+            decoded_authenticator = decode_ciphertext_nonce_tag(authenticator)
+            authenticator_plain_text = AES.decrypt(decoded_authenticator[0], tgs_session_key, decoded_authenticator[1], decoded_authenticator[2])
 
-            authenticator_cipher_text = authenticator[0].encode('utf-8')
-            authenticator_nonce = authenticator[1].encode('utf-8')
-            authenticator_tag = authenticator[2].encode('utf-8')
-
-            authenticator_cipher_text = base64.b64decode(authenticator_cipher_text)
-            authenticator_nonce = base64.b64decode(authenticator_nonce)
-            authenticator_tag = base64.b64decode(authenticator_tag)
-
-            authenticator_plain_text = AES.decrypt(authenticator_cipher_text, tgs_session_key, authenticator_nonce, authenticator_tag)
-
+            # check if decryption was successful
             if authenticator_plain_text:
+                # extract the information from the authenticator
                 authenticator_plain_text.decode("utf-8")
                 authenticator_plain_text = json.loads(authenticator_plain_text)
+
+                # validate the user principal from the authenticator and the tgt
                 if authenticator_plain_text["user_principal"] == tgt_plain_text["user_principal"]:
+                    # validate the timestamp from the authenticator and the tgt, should be within 2 minutes
                     if abs(datetime.fromisoformat(authenticator_plain_text["timestamp"]) - datetime.fromisoformat(tgt_plain_text["timestamp"])) <= timedelta(minutes=2):
-                        return "hola"
+                        # validate the lifetime of the tgt is still valid
+                        if datetime.strptime(tgt_plain_text["tgt_lifetime"], "%Y-%m-%d %H:%M:%S") > datetime.now():
+                            # check if the user is already in the cache
+                            try:
+                                cache[authenticator_plain_text["user_principal"]]
+                                return jsonify({'message': 'User already in cache'}), 508
+                            except KeyError:
+                                cache[authenticator_plain_text["user_principal"]] = authenticator_plain_text["timestamp"]
 
                     return jsonify({'message': 'Validation timeout'}), 507
                 return jsonify({'message': 'User validation failed'}), 506
@@ -74,6 +80,22 @@ def tgs_request():
 
     # Return the response as JSON
     return jsonify(response), 200
+
+def decode_ciphertext_nonce_tag(message):
+    # decode the message for json response
+    return [
+        base64.b64decode(message[0].encode('utf-8')),
+        base64.b64decode(message[1].encode('utf-8')),
+        base64.b64decode(message[2].encode('utf-8'))
+    ]
+
+def encode_ciphertext_nonce_tag(message):
+    # encode the message for json response
+    return [
+        base64.b64encode(message[0]).decode('utf-8'),
+        base64.b64encode(message[1]).decode('utf-8'),
+        base64.b64encode(message[2]).decode('utf-8')
+    ]
 
 if __name__ == '__main__':
     app.run(port=5002)
