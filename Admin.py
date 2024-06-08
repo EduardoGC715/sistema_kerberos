@@ -17,8 +17,8 @@ def add_user():
     ticket_validity_duration = int(
         input("Enter ticket validity duration (in minutes): ")
     )
-    key = create_key(password + user_name + realm)
     principal = "{}@{}".format(user_name, realm)
+    key = create_key(password + principal)
     user = {
         "principal": principal,
         "key": key,

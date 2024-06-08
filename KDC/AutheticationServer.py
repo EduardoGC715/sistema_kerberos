@@ -16,6 +16,7 @@ def as_request():
     data = request.get_json()
     user = database.user_exists_by_principal(data['user_principal'])
     user_data = user[0].to_dict()
+    print(user_data["key"])
     lifetime = min(data["lifetime"], user_data["ticket_validity_duration"])
 
     if user:
@@ -35,7 +36,6 @@ def as_request():
             })
         encrypted_message = AES.encrypt(message.encode("utf-8"), user_data["key"])
         encrypted_tgt = AES.encrypt(tgt.encode("utf-8"), Secrets.TGS_KEY.value)
-
         values_message = [
                         base64.b64encode(encrypted_message[0]).decode('utf-8'),
                         base64.b64encode(encrypted_message[1]).decode('utf-8'),

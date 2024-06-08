@@ -1,7 +1,10 @@
 from flask import Flask, render_template, request, redirect, session
 import requests
 from utils import AES
+from datetime import datetime
 import json
+import hashlib
+import base64
 
 app = Flask(__name__)
 app.secret_key = '1234'
@@ -21,7 +24,7 @@ def services():
 
 
 @app.route("/loginUser", methods=["GET", "POST"])
-def login():
+def loginUser():
     if request.method == "POST":
         username = request.form["username"]
         service = session.get('service')
@@ -41,17 +44,76 @@ def login():
         response = requests.post(url, json=data, headers=headers)
         # Check the response status code
         if response.status_code == 200:
-            response_data = response.json()
-            print(response_data["message"][0])
-            print(response_data["message"][1])
-
-            return "Authentication successful"
+            as_rep = response.json()
+            session["as_rep"] = as_rep
+            session["username"] = username
+            return redirect("/loginPassword")
         if response.status_code == 404:
             return "Invalid user"
         else:
             return "Failed to send JSON data"
-    return render_template("login.html")
+    return render_template("loginUser.html")
 
+@app.route("/loginPassword", methods=["GET", "POST"])
+def loginPassword():
+    if request.method == "POST":
+        password = request.form["password"]
+        as_rep = session.get('as_rep')
+        username = session.get('username')
+        principal = username + current_realm
+        service = session.get('service')
+
+        message = as_rep["message"][0]
+        tgt = as_rep["message"][1]
+        key = password + principal
+        hashed_key = hashlib.sha256(key.encode("utf-8")).digest()
+
+        cipher_text = message[0].encode("utf-8")
+        nonce = message[1].encode("utf-8")
+        tag = message[2].encode("utf-8")
+
+        cipher_text = base64.b64decode(cipher_text)
+        nonce = base64.b64decode(nonce)
+        tag = base64.b64decode(tag)
+
+        plain_text = AES.decrypt(cipher_text, hashed_key, nonce, tag)
+
+        if plain_text:
+            plain_text.decode("utf-8")
+            plain_text = json.loads(plain_text)
+            new_message = json.dumps({
+                "service_principal": service + current_realm,
+                "lifetime": 600
+            })
+            new_authenticator = json.dumps({
+                "user_principal": principal,
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            })
+
+            tgs_session_key = plain_text["tgs_session_key"]
+            tgs_session_key.encode("utf-8")
+            tgs_session_key = base64.b64decode(tgs_session_key)
+
+            authenticator = AES.encrypt(new_authenticator.encode("utf-8"), tgs_session_key)
+
+            values_authenticator = [
+                base64.b64encode(authenticator[0]).decode('utf-8'), # cipher_text
+                base64.b64encode(authenticator[1]).decode('utf-8'), # nonce
+                base64.b64encode(authenticator[2]).decode('utf-8') # tag
+            ]
+
+            data = {
+                "message": [new_message, values_authenticator, tgt]
+            }
+
+            url = "http://localhost:5002/tgs_request"
+            headers = {"Content-Type": "application/json"}
+            response = requests.post(url, json=data, headers=headers)
+
+            return "Authentication successful!"
+
+        return redirect("/loginPassword")
+    return render_template("loginPassword.html")
 
 if __name__ == '__main__':
     app.run(port=5000)
