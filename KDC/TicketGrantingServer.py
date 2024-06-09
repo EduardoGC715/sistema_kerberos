@@ -9,6 +9,7 @@ from secrets import token_bytes
 
 database = Database.Database()
 cache = {}
+TGS_KEY = Secrets.TGS_KEY.value
 
 app = Flask(__name__)
 
@@ -22,18 +23,17 @@ def tgs_request():
     json_message = json.loads(message[0])
     service_principal = json_message["service_principal"]
     authenticator = message[1]
-    tgt = message[2]
+    tgt = message[2] # Ticket Granting Ticket
 
     # check if the service exists in the database
     service = database.service_exists_by_principal(service_principal)
     if service:
         # get the service key
-        service_data = service[0].to_dict()
-        service_key = service_data["key"]
+        service_key = Secrets.SERVICE_KEY.value # TODO define a method via public key for them to exchange keys
 
         # decrypt the tgt
         decoded_tgt = decode_ciphertext_nonce_tag(tgt)
-        tgt_plain_text = AES.decrypt(decoded_tgt[0], Secrets.TGS_KEY.value, decoded_tgt[1], decoded_tgt[2])
+        tgt_plain_text = AES.decrypt(decoded_tgt[0], TGS_KEY, decoded_tgt[1], decoded_tgt[2])
 
         # check if decryption was successful
         if tgt_plain_text:
@@ -41,7 +41,7 @@ def tgs_request():
             tgt_plain_text.decode("utf-8")
             tgt_plain_text = json.loads(tgt_plain_text)
             
-            # extract the tgt session key
+            # extract the TGS session key
             tgs_session_key = tgt_plain_text["tgs_session_key"]
             tgs_session_key.encode("utf-8")
             tgs_session_key = base64.b64decode(tgs_session_key)
@@ -62,7 +62,7 @@ def tgs_request():
                     if abs(datetime.fromisoformat(authenticator_plain_text["timestamp"]) - datetime.fromisoformat(tgt_plain_text["timestamp"])) <= timedelta(minutes=2):
                         # validate the lifetime of the tgt is still valid
                         if datetime.strptime(tgt_plain_text["tgt_lifetime"], "%Y-%m-%d %H:%M:%S") > datetime.now():
-                            # check if the user is already in the cache
+                            # TODO validate ip                            # check if the user is already in the cache
                             try:
                                 # check if the user is already in the cache
                                 cache[authenticator_plain_text["user_principal"]]
@@ -77,7 +77,8 @@ def tgs_request():
                                 new_message = json.dumps({
                                     "service_principal": service_principal,
                                     "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                    "lifetime": tgt_plain_text["lifetime"]
+                                    "lifetime": tgt_plain_text["tgt_lifetime"],
+                                    "service_session_key": base64.b64encode(service_session_key).decode('utf-8')
                                 })
 
                                 # create the new service ticket
@@ -86,21 +87,29 @@ def tgs_request():
                                     "service_principal": service_principal,
                                     "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                     "userIP": tgt_plain_text["userIP"],
-                                    "lifetime": 600
+                                    "lifetime": (datetime.now() + timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S"),
+                                    "service_session_key": base64.b64encode(service_session_key).decode('utf-8')
                                 })
 
+                                # encrypt the new message with the TGS session key
+                                encrypted_message = AES.encrypt(new_message.encode("utf-8"), tgs_session_key)
+
+                                # encrypt the service ticket with the service key
+                                encrypted_service_ticket = AES.encrypt(service_ticket.encode("utf-8"), service_key)
+
+                                # encode the encrypted message and service ticket for json response
+                                encoded_message = encode_ciphertext_nonce_tag(encrypted_message)
+                                encoded_service_ticket = encode_ciphertext_nonce_tag(encrypted_service_ticket)
+
+                                # delete the user from the cache
+                                del cache[authenticator_plain_text["user_principal"]]
+                                
+                                # return the new message and the service ticket
+                                return jsonify({'message': [encoded_message, encoded_service_ticket]}), 200
                     return jsonify({'message': 'Validation timeout'}), 507
                 return jsonify({'message': 'User validation failed'}), 506
         return jsonify({'message': 'Error decrypting'}), 505
-
-    # Prepare the response
-    response = {
-        'message': 'Request received successfully',
-        'data': data
-    }
-
-    # Return the response as JSON
-    return jsonify(response), 200
+    return jsonify({'message': 'Service not found'}), 404
 
 def decode_ciphertext_nonce_tag(message):
     # decode the message for json response

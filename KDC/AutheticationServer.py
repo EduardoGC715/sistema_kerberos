@@ -19,6 +19,9 @@ def as_request():
     user_data = user[0].to_dict()
     lifetime = min(data["lifetime"], user_data["ticket_validity_duration"])
     session_key = token_bytes(32)
+
+    # get the tgs key TODO: define a method to get the tgs key
+    TGS_KEY = Secrets.TGS_KEY.value
     
     # Check if the user exists
     if user:
@@ -42,13 +45,13 @@ def as_request():
         
         # encrypt the message and the tgt
         encrypted_message = AES.encrypt(message.encode("utf-8"), user_data["key"])
-        encrypted_tgt = AES.encrypt(tgt.encode("utf-8"), Secrets.TGS_KEY.value)
+        encrypted_tgt = AES.encrypt(tgt.encode("utf-8"), TGS_KEY)
 
         # encode the encrypted message and tgt for json response
-        values_message = encode_ciphertext_nonce_tag(encrypted_message)
-        values_tgt = encode_ciphertext_nonce_tag(encrypted_tgt)
+        encoded_message = encode_ciphertext_nonce_tag(encrypted_message)
+        encoded_tgt = encode_ciphertext_nonce_tag(encrypted_tgt)
         
-        return jsonify({'message': [values_message, values_tgt ]}), 200
+        return jsonify({'message': [encoded_message, encoded_tgt ]}), 200
     
     return jsonify({'message': 'User does not exist'}), 404
 
