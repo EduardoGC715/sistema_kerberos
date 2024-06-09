@@ -5,6 +5,7 @@ import base64
 from utils.Secrets import Secrets
 import json
 from datetime import datetime, timedelta
+from secrets import token_bytes
 
 database = Database.Database()
 cache = {}
@@ -63,10 +64,30 @@ def tgs_request():
                         if datetime.strptime(tgt_plain_text["tgt_lifetime"], "%Y-%m-%d %H:%M:%S") > datetime.now():
                             # check if the user is already in the cache
                             try:
+                                # check if the user is already in the cache
                                 cache[authenticator_plain_text["user_principal"]]
                                 return jsonify({'message': 'User already in cache'}), 508
                             except KeyError:
+                                # if the user is not in the cache, add it
                                 cache[authenticator_plain_text["user_principal"]] = authenticator_plain_text["timestamp"]
+                                
+                                # create a new service session key
+                                service_session_key = token_bytes(32)
+                                # create the new message
+                                new_message = json.dumps({
+                                    "service_principal": service_principal,
+                                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    "lifetime": tgt_plain_text["lifetime"]
+                                })
+
+                                # create the new service ticket
+                                service_ticket = json.dumps({
+                                    "user_principal": authenticator_plain_text["user_principal"],
+                                    "service_principal": service_principal,
+                                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    "userIP": tgt_plain_text["userIP"],
+                                    "lifetime": 600
+                                })
 
                     return jsonify({'message': 'Validation timeout'}), 507
                 return jsonify({'message': 'User validation failed'}), 506
