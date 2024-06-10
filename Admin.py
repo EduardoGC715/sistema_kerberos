@@ -34,8 +34,8 @@ def add_service():
     service_name = input("Enter service name: ")
     realm = input("Enter service realm: ")
     password = input("Enter service password: ")
+    ip_address = input("Enter user IP address: ")
     key = create_key(password + service_name + realm)
-    print(key)
     principal = "{}@{}".format(service_name, realm)
     service = {
         "principal": principal,
@@ -43,6 +43,7 @@ def add_service():
         "knov": 1,
         "password_expiration_date": datetime.now() + relativedelta(months=6),
         "principal_expiration_date": datetime.now() + relativedelta(months=12),
+        "ip_address": ip_address
     }
     database.save_service(service)
 

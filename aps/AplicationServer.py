@@ -15,6 +15,9 @@ def aps_request():
     # Get the request data
     data = request.get_json()
 
+    # get the ip of the client
+    client_ip = request.remote_addr
+
     # extract the data from the request
     message = data['message']
     authenticator = message[0]
@@ -52,32 +55,33 @@ def aps_request():
             if authenticator_plain_text["user_principal"] == service_ticket_plain_text["user_principal"]:
                 if abs(datetime.fromisoformat(authenticator_plain_text["timestamp"]) - datetime.fromisoformat(service_ticket_plain_text["timestamp"])) <= timedelta(minutes=2):
                     if datetime.strptime(service_ticket_plain_text["lifetime"], "%Y-%m-%d %H:%M:%S") > datetime.now():
-                        # TODO validate ip
-                        try:
-                            # check if the user is already in the cache
-                            cache[authenticator_plain_text["user_principal"]]
-                            return jsonify({"message": "User already in cache"}), 508
-                        except KeyError:
-                            # if the user is not in the cache, add it
-                            cache[authenticator_plain_text["user_principal"]] = authenticator_plain_text["timestamp"]
-                            # create the response
-                            service_authenticator = {
-                                "service_principal": service_ticket_plain_text["service_principal"],
-                                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                "service_action": service_action(service_ticket_plain_text["service_principal"])
-                            }
+                        if client_ip == service_ticket_plain_text["userIP"]:
+                            try:
+                                # check if the user is already in the cache
+                                cache[authenticator_plain_text["user_principal"]]
+                                return jsonify({"message": "User already in cache"}), 508
+                            except KeyError:
+                                # if the user is not in the cache, add it
+                                cache[authenticator_plain_text["user_principal"]] = authenticator_plain_text["timestamp"]
+                                # create the response
+                                service_authenticator = {
+                                    "service_principal": service_ticket_plain_text["service_principal"],
+                                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    "service_action": service_action(service_ticket_plain_text["service_principal"])
+                                }
 
-                            # encrypt the service authenticator
-                            encrypted_service_authenticator = AES.encrypt(json.dumps(service_authenticator).encode("utf-8"), service_session_key)
+                                # encrypt the service authenticator
+                                encrypted_service_authenticator = AES.encrypt(json.dumps(service_authenticator).encode("utf-8"), service_session_key)
 
-                            # encode the encrypted service authenticator for json response
-                            encoded_service_authenticator = encode_ciphertext_nonce_tag(encrypted_service_authenticator)
+                                # encode the encrypted service authenticator for json response
+                                encoded_service_authenticator = encode_ciphertext_nonce_tag(encrypted_service_authenticator)
 
-                            # delete the user from the cache
-                            del cache[authenticator_plain_text["user_principal"]]
+                                # delete the user from the cache
+                                del cache[authenticator_plain_text["user_principal"]]
 
-                            # return the service authenticator
-                            return jsonify({'message': encoded_service_authenticator}), 200
+                                # return the service authenticator
+                                return jsonify({'message': encoded_service_authenticator}), 200
+                        return jsonify({'message': 'Invalid IP address'}), 509
                 return jsonify({"message": "Validation timeout"}), 507
             return jsonify({'message': 'User validation failed'}), 506
     return jsonify({'message': 'Error decrypting'}), 505

@@ -5,9 +5,10 @@ from datetime import datetime, timedelta
 import json
 import hashlib
 import base64
+from app_secrets.Secrets import Secrets
 
 app = Flask(__name__)
-app.secret_key = '1234'
+app.secret_key = Secrets.APP_KEY.value
 current_realm = '@TEC'
 
 cache = {}
@@ -32,7 +33,7 @@ def loginUser():
         username = request.form["username"]
         service = session.get('service')
         userIP = request.remote_addr
-        lifetime =  600 # minutes defined by default by app.
+        lifetime =  600
 
         # create the message for request
         message = {
@@ -81,6 +82,7 @@ def loginPassword():
         decoded_message = decode_ciphertext_nonce_tag(message)
         message_plain_text = AES.decrypt(decoded_message[0], user_hashed_key, decoded_message[1], decoded_message[2])
 
+        # check if decryption was successful
         if message_plain_text:
             # decode the message
             message_plain_text.decode("utf-8")

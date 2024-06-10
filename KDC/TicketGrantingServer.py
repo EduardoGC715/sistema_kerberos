@@ -20,6 +20,9 @@ def tgs_request():
     # Get the request data
     data = request.get_json()
 
+    # get the ip of the client
+    client_ip = request.remote_addr
+
     # extract the data from the request
     message  = data["message"]
     json_message = json.loads(message[0])
@@ -60,54 +63,58 @@ def tgs_request():
 
                 # validate the user principal from the authenticator and the tgt
                 if authenticator_plain_text["user_principal"] == tgt_plain_text["user_principal"]:
+                    # check if the user exists in the database and get info
+                    user_principal = database.user_exists_by_principal(authenticator_plain_text["user_principal"])
+                    user_data = user_principal[0].to_dict()
                     # validate the timestamp from the authenticator and the tgt, should be within 2 minutes
                     if abs(datetime.fromisoformat(authenticator_plain_text["timestamp"]) - datetime.fromisoformat(tgt_plain_text["timestamp"])) <= timedelta(minutes=2):
                         # validate the lifetime of the tgt is still valid
                         if datetime.strptime(tgt_plain_text["tgt_lifetime"], "%Y-%m-%d %H:%M:%S") > datetime.now():
-                            # TODO validate ip                            # check if the user is already in the cache
-                            try:
-                                # check if the user is already in the cache
-                                cache[authenticator_plain_text["user_principal"]]
-                                return jsonify({'message': 'User already in cache'}), 508
-                            except KeyError:
-                                # if the user is not in the cache, add it
-                                cache[authenticator_plain_text["user_principal"]] = authenticator_plain_text["timestamp"]
-                                
-                                # create a new service session key
-                                service_session_key = token_bytes(32)
-                                # create the new message
-                                new_message = json.dumps({
-                                    "service_principal": service_principal,
-                                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                    "lifetime": tgt_plain_text["tgt_lifetime"],
-                                    "service_session_key": base64.b64encode(service_session_key).decode('utf-8')
-                                })
+                            if user_data["ip_address"] == client_ip:                          # check if the user is already in the cache
+                                try:
+                                    # check if the user is already in the cache
+                                    cache[authenticator_plain_text["user_principal"]]
+                                    return jsonify({'message': 'User already in cache'}), 508
+                                except KeyError:
+                                    # if the user is not in the cache, add it
+                                    cache[authenticator_plain_text["user_principal"]] = authenticator_plain_text["timestamp"]
+                                    
+                                    # create a new service session key
+                                    service_session_key = token_bytes(32)
+                                    # create the new message
+                                    new_message = json.dumps({
+                                        "service_principal": service_principal,
+                                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                        "lifetime": tgt_plain_text["tgt_lifetime"],
+                                        "service_session_key": base64.b64encode(service_session_key).decode('utf-8')
+                                    })
 
-                                # create the new service ticket
-                                service_ticket = json.dumps({
-                                    "user_principal": authenticator_plain_text["user_principal"],
-                                    "service_principal": service_principal,
-                                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                    "userIP": tgt_plain_text["userIP"], #TODO validate time of service ???
-                                    "lifetime": (datetime.now() + timedelta(minutes=600)).strftime("%Y-%m-%d %H:%M:%S"),
-                                    "service_session_key": base64.b64encode(service_session_key).decode('utf-8')
-                                })
+                                    # create the new service ticket
+                                    service_ticket = json.dumps({
+                                        "user_principal": authenticator_plain_text["user_principal"],
+                                        "service_principal": service_principal,
+                                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                        "userIP": tgt_plain_text["userIP"],
+                                        "lifetime": (datetime.now() + timedelta(minutes=(600))).strftime("%Y-%m-%d %H:%M:%S"),
+                                        "service_session_key": base64.b64encode(service_session_key).decode('utf-8')
+                                    })
 
-                                # encrypt the new message with the TGS session key
-                                encrypted_message = AES.encrypt(new_message.encode("utf-8"), tgs_session_key)
+                                    # encrypt the new message with the TGS session key
+                                    encrypted_message = AES.encrypt(new_message.encode("utf-8"), tgs_session_key)
 
-                                # encrypt the service ticket with the service key
-                                encrypted_service_ticket = AES.encrypt(service_ticket.encode("utf-8"), service_key)
+                                    # encrypt the service ticket with the service key
+                                    encrypted_service_ticket = AES.encrypt(service_ticket.encode("utf-8"), service_key)
 
-                                # encode the encrypted message and service ticket for json response
-                                encoded_message = encode_ciphertext_nonce_tag(encrypted_message)
-                                encoded_service_ticket = encode_ciphertext_nonce_tag(encrypted_service_ticket)
+                                    # encode the encrypted message and service ticket for json response
+                                    encoded_message = encode_ciphertext_nonce_tag(encrypted_message)
+                                    encoded_service_ticket = encode_ciphertext_nonce_tag(encrypted_service_ticket)
 
-                                # delete the user from the cache
-                                del cache[authenticator_plain_text["user_principal"]]
-                                
-                                # return the new message and the service ticket
-                                return jsonify({'message': [encoded_message, encoded_service_ticket]}), 200
+                                    # delete the user from the cache
+                                    del cache[authenticator_plain_text["user_principal"]]
+                                    
+                                    # return the new message and the service ticket
+                                    return jsonify({'message': [encoded_message, encoded_service_ticket]}), 200
+                            return jsonify({'message': 'Invalid IP address'}), 509
                     return jsonify({'message': 'Validation timeout'}), 507
                 return jsonify({'message': 'User validation failed'}), 506
         return jsonify({'message': 'Error decrypting'}), 505
