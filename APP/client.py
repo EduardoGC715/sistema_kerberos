@@ -10,6 +10,8 @@ app = Flask(__name__)
 app.secret_key = '1234'
 current_realm = '@TEC'
 
+cache = {}
+
 @app.route('/')
 def index():
     return 'Aplicación simulación de Kerberos'
@@ -155,8 +157,9 @@ def service():
     # decrypt the message
     message_plain_text = AES.decrypt(decoded_message[0], tgs_session_key, decoded_message[1], decoded_message[2])
     
-    # delete the tgs_session_key
+    # delete the tgs_session_key and tgs_rep data
     session.pop('tgs_session_key', None)
+    session.pop("tgs_rep", None)
 
     # check if decryption was successful
     if message_plain_text:
@@ -169,6 +172,11 @@ def service():
             "user_principal": principal,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         })
+
+        new_message = json.dumps({
+            "service_principal": service + current_realm,
+            "lifetime": 600
+        })
         
         #extract the service session key
         service_session_key = message_plain_text["service_session_key"]
@@ -179,11 +187,11 @@ def service():
         authenticator = AES.encrypt(new_authenticator.encode("utf-8"), service_session_key)
 
         # encode the new authenticator for json response
-        values_authenticator = encode_ciphertext_nonce_tag(authenticator)
+        encoded_authenticator = encode_ciphertext_nonce_tag(authenticator)
 
         # create the service message
         service_message = {
-            "message": [values_authenticator, service_ticket]
+            "message": [encoded_authenticator, service_ticket, new_message]
         }
 
         # delete the tgs_rep data
@@ -215,7 +223,8 @@ def service():
                 # validate the user principal from the authenticator and the service ticket
                 if (service + current_realm) == service_authenticator_plain_text["service_principal"]:
                     if abs(datetime.fromisoformat(service_authenticator_plain_text["timestamp"]) - datetime.now()) <= timedelta(minutes=2):
-                        return jsonify({'message': 'Service authenticated'}), 
+                        cache["service_ticket"] = service_ticket
+                        return jsonify({'Service action': service_authenticator_plain_text["service_action"]})
                     return "Invalid timestamp"
                 return "Error authenticating"
             else:

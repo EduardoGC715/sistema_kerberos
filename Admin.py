@@ -35,6 +35,7 @@ def add_service():
     realm = input("Enter service realm: ")
     password = input("Enter service password: ")
     key = create_key(password + service_name + realm)
+    print(key)
     principal = "{}@{}".format(service_name, realm)
     service = {
         "principal": principal,
@@ -46,6 +47,8 @@ def add_service():
     database.save_service(service)
 
 #==========MAIN==========#
-add_user()
-add_user()
-# add_service()
+#add_user()
+#add_user()
+add_service()
+add_service()
+add_service()

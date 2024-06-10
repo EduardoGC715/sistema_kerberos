@@ -1,12 +1,12 @@
 from flask import Flask, request, jsonify
-from utils.Secrets import Secrets
+from aps_secrets.Secrets import Secrets
 from utils import AES
 from datetime import datetime, timedelta
 import base64
 import json
+import rsa
 
 cache = {}
-SERVICE_KEY = Secrets.SERVICE_KEY.value
 
 app = Flask(__name__)
 
@@ -19,6 +19,9 @@ def aps_request():
     message = data['message']
     authenticator = message[0]
     service_ticket = message[1]
+    service = json.loads(message[2])["service_principal"]
+
+    SERVICE_KEY = service_key_selector(service)
 
     # decrypt the service ticket
     decoded_service_ticket = decode_ciphertext_nonce_tag(service_ticket)
@@ -60,7 +63,8 @@ def aps_request():
                             # create the response
                             service_authenticator = {
                                 "service_principal": service_ticket_plain_text["service_principal"],
-                                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                "service_action": service_action(service_ticket_plain_text["service_principal"])
                             }
 
                             # encrypt the service authenticator
@@ -78,10 +82,49 @@ def aps_request():
             return jsonify({'message': 'User validation failed'}), 506
     return jsonify({'message': 'Error decrypting'}), 505
 
+@app.route('/aps_key_request', methods=['GET'])
+def aps_key_request():
+    # get the data from request
+    data = request.get_json()
+    service = data['service_principal']
 
+    # get the service key
+    SERVICE_KEY = service_key_selector(service)
 
-    # Return the response as JSON
-    return jsonify(response), 200
+    # get the tgs public key
+    with open('aps/aps_secrets/tgs_public.pem', 'rb') as f:
+        TGS_PUBLIC_KEY = rsa.PublicKey.load_pkcs1(f.read())
+
+    # encrypt the aps key with the as public key
+    encrypted_aps_key = rsa.encrypt(SERVICE_KEY, TGS_PUBLIC_KEY)
+
+    # encode the encrypted tgs key for json response
+    encoded_aps_key = base64.b64encode(encrypted_aps_key).decode('utf-8')
+
+    # return the encrypted tgs key
+    return jsonify({'message': encoded_aps_key}), 200
+
+def service_key_selector(service):
+    # select the service
+    if service == "service1@TEC":
+        return Secrets.service1.value
+    elif service == "service2@TEC":
+        return Secrets.service2.value
+    elif service == "service3@TEC":
+        return Secrets.service3.value
+    else:
+        return None
+
+def service_action(service):
+    # select the service
+    if service == "service1@TEC":
+        return "service1_action"
+    elif service == "service2@TEC":
+        return "service2_action"
+    elif service == "service3@TEC":
+        return "service3_action"
+    else:
+        return None
 
 def decode_ciphertext_nonce_tag(message):
     # decode the message for json response

@@ -2,10 +2,12 @@ from flask import Flask, request, jsonify
 from utils import AES
 import database.Database as Database
 import base64
-from utils.Secrets import Secrets
+from tgs_secrets.Secrets import Secrets
 import json
 from datetime import datetime, timedelta
 from secrets import token_bytes
+import rsa
+import requests
 
 database = Database.Database()
 cache = {}
@@ -29,7 +31,7 @@ def tgs_request():
     service = database.service_exists_by_principal(service_principal)
     if service:
         # get the service key
-        service_key = Secrets.SERVICE_KEY.value # TODO define a method via public key for them to exchange keys
+        service_key = get_service_key(service_principal)
 
         # decrypt the tgt
         decoded_tgt = decode_ciphertext_nonce_tag(tgt)
@@ -86,8 +88,8 @@ def tgs_request():
                                     "user_principal": authenticator_plain_text["user_principal"],
                                     "service_principal": service_principal,
                                     "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                    "userIP": tgt_plain_text["userIP"],
-                                    "lifetime": (datetime.now() + timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S"),
+                                    "userIP": tgt_plain_text["userIP"], #TODO validate time of service ???
+                                    "lifetime": (datetime.now() + timedelta(minutes=600)).strftime("%Y-%m-%d %H:%M:%S"),
                                     "service_session_key": base64.b64encode(service_session_key).decode('utf-8')
                                 })
 
@@ -110,6 +112,38 @@ def tgs_request():
                 return jsonify({'message': 'User validation failed'}), 506
         return jsonify({'message': 'Error decrypting'}), 505
     return jsonify({'message': 'Service not found'}), 404
+
+@app.route('/tgs_key_request', methods=['GET'])
+def tgs_key_request():
+    # get the as public key
+    with open('kdc/tgs_secrets/as_public.pem', 'rb') as f:
+        AS_PUBLIC_KEY = rsa.PublicKey.load_pkcs1(f.read())
+    
+    # encrypt the tgs key with the as public key
+    encrypted_tgs_key = rsa.encrypt(Secrets.TGS_KEY.value, AS_PUBLIC_KEY)
+
+    # encode the encrypted tgs key for json response
+    encoded_tgs_key = base64.b64encode(encrypted_tgs_key).decode('utf-8')
+
+    # return the encrypted tgs key
+    return jsonify({'message': encoded_tgs_key}), 200
+
+def get_service_key(service_principal):
+    url = "http://localhost:5003/aps_key_request"
+    headers = {"Content-Type": "application/json"}
+
+    response = requests.get(url, json={"service_principal": service_principal}, headers=headers)
+    response = response.json()["message"]
+
+    # get the tgs private key
+    with open('kdc/tgs_secrets/tgs_private.pem', 'rb') as f:
+        tgs_private_key = rsa.PrivateKey.load_pkcs1(f.read())
+
+    # decode the aps key
+    response = base64.b64decode(response.encode('utf-8'))
+    aps_key = rsa.decrypt(response, tgs_private_key)
+
+    return aps_key
 
 def decode_ciphertext_nonce_tag(message):
     # decode the message for json response

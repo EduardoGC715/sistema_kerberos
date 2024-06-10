@@ -2,10 +2,12 @@ from flask import Flask, request, jsonify
 import json
 from datetime import datetime, timedelta
 import database.Database as Database
-from utils.Secrets import Secrets
 from secrets import token_bytes
+from as_secrets.Secrets import Secrets
 import base64
 from utils import AES
+import rsa
+import requests
 
 database = Database.Database()
 
@@ -19,9 +21,9 @@ def as_request():
     user_data = user[0].to_dict()
     lifetime = min(data["lifetime"], user_data["ticket_validity_duration"])
     session_key = token_bytes(32)
-
-    # get the tgs key TODO: define a method to get the tgs key
-    TGS_KEY = Secrets.TGS_KEY.value
+    
+    # ask for the tgs key
+    TGS_KEY = get_tgs_key()
     
     # Check if the user exists
     if user:
@@ -54,6 +56,22 @@ def as_request():
         return jsonify({'message': [encoded_message, encoded_tgt ]}), 200
     
     return jsonify({'message': 'User does not exist'}), 404
+
+def get_tgs_key():
+    url = "http://localhost:5002/tgs_key_request"
+    headers = {"Content-Type": "application/json"}
+    response = requests.get(url, headers=headers)
+    response = response.json()["message"]
+
+    # get the as private key
+    with open('kdc/as_secrets/as_private.pem', 'rb') as f:
+        as_private_key = rsa.PrivateKey.load_pkcs1(f.read())
+    
+    #decode the tgs key
+    response = base64.b64decode(response.encode('utf-8'))
+    tgs_key = rsa.decrypt(response, as_private_key)
+
+    return tgs_key
 
 def encode_ciphertext_nonce_tag(message):
     # encode the message for json response
