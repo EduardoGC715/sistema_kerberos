@@ -1,8 +1,8 @@
-Proyecto 2 de Criptografía
+Proyecto 2 del curso de Criptografía
 
-Sistema de kerberos
+Sistema de Kerberos
 
-Eduardo Gutiérrez Conejo - 2019073558
+Eduardo Gutiérrez Conejo
 
 Referencias:
 
