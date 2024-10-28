@@ -4,6 +4,8 @@ Sistema de Kerberos
 
 Eduardo Gutiérrez Conejo
 
+Implementación del protocolo Kerberos para autenticar solicitudes de servicio entre hosts de confianza a través de una red no confiable. Creado utilizando Python con Flask y Firebase.
+
 Referencias:
 
 https://www.youtube.com/watch?v=n0uJsqFGO4k
